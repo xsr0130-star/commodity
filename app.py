@@ -63,7 +63,7 @@ def save_history(usdjpy, ose_g, g_diff, ose_p, p_diff):
     return df
 
 # ==========================================
-# 3. CSS (完全レスポンシブ・縮小対応)
+# 3. CSS (最強の横並び強制設定)
 # ==========================================
 CUSTOM_CSS = """
 <style>
@@ -79,14 +79,33 @@ CUSTOM_CSS = """
     
     h2 { color: #e0e0e0 !important; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 15px !important; font-size: 1.2rem !important; }
 
-    /* --- 【重要】入力欄の縮小対応 --- */
+    /* ==========================================================================
+       【最強】強制横並びハック V2
+       Streamlitのレスポンシブ動作を完全に無効化します
+       ========================================================================== */
     
-    /* 入力フォームのコンテナ自体を縮小可能にする */
-    div[data-testid="stNumberInput"] {
+    /* 横並びコンテナ (st.columnsの親要素) */
+    div[data-testid="stHorizontalBlock"] {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important; /* 絶対に折り返さない */
+        gap: 8px !important;
         width: 100% !important;
-        min-width: 0 !important;
+        align-items: flex-end !important;
+    }
+    
+    /* 各カラム (st.columnsの子要素) */
+    div[data-testid="column"] {
+        flex: 1 1 0px !important; /* 均等幅、かつ0pxまで縮小許可 */
+        width: auto !important;
+        min-width: 0 !important;  /* 最小幅制限を解除 */
+        max-width: 100% !important;
     }
 
+    /* --- 入力フォームの縮小対応 --- */
+    div[data-testid="stNumberInput"] {
+        min-width: 0 !important;
+    }
     /* ラベル */
     div[data-testid="stNumberInput"] label {
         color: #aaa !important; 
@@ -94,10 +113,9 @@ CUSTOM_CSS = """
         white-space: nowrap;          
         overflow: hidden;             
         text-overflow: ellipsis;
-        margin-bottom: 0px !important;
+        margin-bottom: 2px !important;
         width: 100%;
     }
-
     /* 入力ボックス本体 */
     div[data-testid="stNumberInput"] input { 
         background-color: #000 !important; 
@@ -107,27 +125,18 @@ CUSTOM_CSS = """
         text-align: right; 
         font-weight: bold; 
         
-        /* ここがポイント: 固定幅をやめて100%にする */
+        /* 幅の強制縮小 */
         width: 100% !important;       
-        min-width: 10px !important;   /* 限界まで縮むことを許可 */
-        max-width: 100% !important;
+        min-width: 0 !important;
         
         font-size: 1rem !important; 
-        padding: 0.2rem 0.4rem !important;
+        padding: 0.3rem !important;
     }
     
-    /* カラム設定: 均等割付＆縮小許可 */
-    div[data-testid="column"] {
-        flex: 1 1 50% !important;
-        width: 50% !important;
-        min-width: 0 !important;
-        padding: 0 5px !important; /* 隣との隙間を確保 */
-    }
-
     /* --- ボタンの縮小対応 --- */
     div.stButton {
-        width: 100% !important;
         min-width: 0 !important;
+        width: 100% !important;
     }
     div.stButton > button { 
         width: 100% !important; 
@@ -135,13 +144,13 @@ CUSTOM_CSS = """
         border-radius: 4px !important; 
         font-weight: bold !important; 
         border: none !important; 
-        padding: 0.5rem 0.1rem !important; /* 余白を削る */
-        margin-top: 0px; 
+        padding: 0.5rem 0.1rem !important;
+        margin-top: 5px; 
         font-size: 0.75rem !important; 
         white-space: nowrap; 
         overflow: hidden;
         text-overflow: clip; 
-        line-height: 1 !important;
+        line-height: 1.2 !important;
     }
     /* 青ボタン */
     div[data-testid="column"]:nth-of-type(1) div.stButton > button { background-color: #0277bd !important; color: white !important; }
@@ -149,13 +158,12 @@ CUSTOM_CSS = """
     div[data-testid="column"]:nth-of-type(2) div.stButton > button { background-color: #e65100 !important; color: white !important; }
 
 
-    /* --- HTML表示部分 --- */
+    /* --- 以下、HTML表示部分 --- */
     .flex-row {
         display: flex; flex-direction: row; flex-wrap: nowrap; gap: 8px; width: 100%; margin-bottom: 8px;
     }
     .flex-item { flex: 1; min-width: 0; }
 
-    /* カード */
     .custom-card { background-color: #1e1e1e; border: 1px solid #333; border-radius: 6px; padding: 10px; box-sizing: border-box; }
     .card-fx { border-left: 4px solid #009688; }
     .card-gold { border-left: 4px solid #ffc107; }
@@ -173,12 +181,10 @@ CUSTOM_CSS = """
     .plus { color: #ff5252; }
     .minus { color: #69f0ae; }
 
-    /* 予想ボックス */
     .sim-box { background: #261a1a; border: 1px solid #5d4037; padding: 8px; border-radius: 6px; margin-bottom: 10px; }
     .sim-title { font-size: 0.8rem; font-weight: bold; color: #ffab91; margin-bottom: 5px; white-space: nowrap; }
     .sim-val { font-size: 1.1rem; font-weight: bold; color: #fff; text-align: right; font-family: monospace; white-space: nowrap; }
 
-    /* 履歴テーブル */
     .hist-container { margin-top: 10px; overflow-x: auto; }
     .hist-table { width: 100%; border-collapse: collapse; font-size: 0.7rem; }
     .hist-table th { background: #2d2d2d; color: #ccc; padding: 2px; border: 1px solid #444; text-align: center; white-space: nowrap; }
@@ -199,14 +205,14 @@ def main():
 
     st.markdown("<h2>🇺🇸 US/OSE Monitor & Predictor</h2>", unsafe_allow_html=True)
 
-    # --- 1. 入力エリア (縮小対応) ---
+    # --- 1. 入力エリア (横並び) ---
     c_in1, c_in2 = st.columns(2)
     with c_in1:
         ose_gold = st.number_input("OSE 金", value=st.session_state['ose_g'], step=10.0, format="%.0f")
     with c_in2:
         ose_plat = st.number_input("OSE 白金", value=st.session_state['ose_p'], step=10.0, format="%.0f")
 
-    # --- 2. ボタンエリア (縮小対応) ---
+    # --- 2. ボタンエリア (横並び) ---
     st.write("") # 隙間
     c_btn1, c_btn2 = st.columns(2)
     with c_btn1:
