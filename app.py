@@ -1,252 +1,307 @@
-import streamlit as st
-import requests
-import pandas as pd
-import datetime
+import tkinter as tk
+from tkinter import ttk, messagebox
+import threading
+import time
+import json
 import os
+from datetime import datetime
+import requests
+import websocket
 
 # ==========================================
 # 設定
 # ==========================================
-OZ = 31.1034768  # 1トロイオンス
-HISTORY_FILE = "price_history.csv"
+OZ = 31.1034768
+LOG_FILE = "us_monitor_log.csv"
+CONFIG_FILE = "us_monitor_config.json"
 
-# 偽装ヘッダー (ブラウザからのアクセスに見せる)
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Referer": "https://quote.eastmoney.com/"
+# データ保持用 (スレッド間で共有)
+market_data = {
+    "usdjpy": 0.0,
+    "gold": 0.0,
+    "plat": 0.0
 }
 
 # ==========================================
-# データ取得ロジック (Eastmoney API)
+# 通信スレッド群
 # ==========================================
-def get_china_data_eastmoney():
-    """
-    東方財富 (Eastmoney) のAPIを使用して中国先物を取得
-    secid: 市場ID.コード
-    - 113.au00 : 上海金 (主力連続)
-    - 142.pt00 : 広州白金 (主力連続)
-    """
-    gold = 0.0
-    plat = 0.0
-    
-    # --- 1. 上海金 (SHFE Gold Main) ---
-    try:
-        # secid=113.au00 (上海期貨交易所)
-        url_g = "https://push2.eastmoney.com/api/qt/stock/get?secid=113.au00&fields=f43"
-        r = requests.get(url_g, headers=HEADERS, timeout=5)
-        data = r.json()
-        
-        # f43が現在価格 (データがない場合は "-" が返る)
-        val = data.get("data", {}).get("f43", 0)
-        if val != "-":
-            gold = float(val)
-    except Exception as e:
-        print(f"China Gold Error: {e}")
 
-    # --- 2. 広州白金 (GFEX Platinum Main) ---
-    try:
-        # secid=142.pt00 (広州期貨交易所)
-        # pt00 (主力連続) が取れない場合は pt2606 (特定限月) を試すロジック
-        codes_to_try = ["142.pt00", "142.pt2606"]
+# 1. 金 (Binance WebSocket: 最強)
+def run_gold_ws():
+    def on_message(ws, message):
+        try:
+            data = json.loads(message)
+            price = float(data['p'])
+            market_data['gold'] = price
+        except: pass
+
+    def on_error(ws, error):
+        time.sleep(5) # 再接続待機
+
+    def on_close(ws, close_status_code, close_msg):
+        time.sleep(5)
+        start_ws() # 再帰的に再接続
+
+    def start_ws():
+        # PAXG/USDT (Gold Token)
+        ws = websocket.WebSocketApp(
+            "wss://stream.binance.com:9443/ws/paxgusdt@trade",
+            on_message=on_message,
+            on_error=on_error,
+            on_close=on_close
+        )
+        ws.run_forever()
+
+    threading.Thread(target=start_ws, daemon=True).start()
+
+# 2. 為替 & 白金 (ポーリング)
+def run_polling():
+    while True:
+        try:
+            # 為替 (ExchangeRate-API)
+            r_fx = requests.get("https://api.exchangerate-api.com/v4/latest/USD", timeout=5)
+            market_data['usdjpy'] = r_fx.json()['rates']['JPY']
+        except: pass
+
+        try:
+            # 白金 (Yahoo Finance JSON - 先物 PL=F)
+            # Pythonならヘッダー偽装で直接Yahooを取れるのでプロキシ不要！
+            headers = {"User-Agent": "Mozilla/5.0"}
+            url_p = "https://query1.finance.yahoo.com/v8/finance/chart/PL=F?interval=1d&range=1d"
+            r_p = requests.get(url_p, headers=headers, timeout=5)
+            market_data['plat'] = r_p.json()['chart']['result'][0]['meta']['regularMarketPrice']
+        except: pass
+
+        time.sleep(5) # 5秒間隔
+
+threading.Thread(target=run_polling, daemon=True).start()
+
+
+# ==========================================
+# GUI アプリケーション
+# ==========================================
+class App(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("🇺🇸 US/OSE Monitor (Python Native)")
+        self.geometry("600x550")
+        self.configure(bg="#1e1e1e")
         
-        for code in codes_to_try:
-            url_p = f"https://push2.eastmoney.com/api/qt/stock/get?secid={code}&fields=f43"
-            r = requests.get(url_p, headers=HEADERS, timeout=5)
-            data = r.json()
-            val = data.get("data", {}).get("f43", 0)
-            
-            if val != "-" and float(val) > 0:
-                plat = float(val)
-                break # 取得できたらループ終了
+        # スタイル設定
+        style = ttk.Style()
+        style.theme_use('clam')
+        style.configure("TLabel", background="#1e1e1e", foreground="#e0e0e0", font=("Meiryo", 10))
+        style.configure("Header.TLabel", font=("Meiryo", 14, "bold"), foreground="#ffffff")
+        style.configure("Val.TLabel", font=("Consolas", 20, "bold"), foreground="#ffffff")
+        style.configure("DiffPlus.TLabel", font=("Consolas", 14, "bold"), foreground="#ff5252")
+        style.configure("DiffMinus.TLabel", font=("Consolas", 14, "bold"), foreground="#69f0ae")
+        style.configure("TButton", font=("Meiryo", 10, "bold"), background="#0277bd", foreground="white")
+        style.map("TButton", background=[("active", "#01579b")])
+
+        # 保存されたOSE入力値をロード
+        self.load_config()
+
+        # --- UI構築 ---
+        
+        # 1. 入力エリア
+        input_frame = tk.Frame(self, bg="#2d2d2d", padx=10, pady=10)
+        input_frame.pack(fill="x", padx=10, pady=10)
+
+        tk.Label(input_frame, text="OSE 金 (円):", bg="#2d2d2d", fg="#ffc107").grid(row=0, column=0, padx=5)
+        self.entry_gold = tk.Entry(input_frame, font=("Consolas", 12), width=10, justify="right", bg="#000", fg="#fff", insertbackground="white")
+        self.entry_gold.grid(row=0, column=1, padx=5)
+        self.entry_gold.insert(0, str(self.config.get("ose_gold", "")))
+
+        tk.Label(input_frame, text="OSE 白金 (円):", bg="#2d2d2d", fg="#b0bec5").grid(row=0, column=2, padx=5)
+        self.entry_plat = tk.Entry(input_frame, font=("Consolas", 12), width=10, justify="right", bg="#000", fg="#fff", insertbackground="white")
+        self.entry_plat.grid(row=0, column=3, padx=5)
+        self.entry_plat.insert(0, str(self.config.get("ose_plat", "")))
+
+        save_btn = tk.Button(input_frame, text="記録", bg="#e65100", fg="white", font=("Meiryo", 9, "bold"), command=self.save_log)
+        save_btn.grid(row=0, column=4, padx=20)
+
+        # 2. 為替表示
+        fx_frame = tk.Frame(self, bg="#004d40", padx=10, pady=5)
+        fx_frame.pack(fill="x", padx=10, pady=0)
+        tk.Label(fx_frame, text="USD/JPY", bg="#004d40", fg="#aaa").pack(side="left")
+        self.lbl_fx = tk.Label(fx_frame, text="---", font=("Consolas", 16, "bold"), bg="#004d40", fg="#fff")
+        self.lbl_fx.pack(side="right")
+
+        # 3. メイングリッド (金・白金)
+        grid_frame = tk.Frame(self, bg="#1e1e1e")
+        grid_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # 金パネル
+        g_panel = tk.Frame(grid_frame, bg="#252525", bd=1, relief="solid")
+        g_panel.pack(side="left", fill="both", expand=True, padx=5)
+        tk.Label(g_panel, text="Gold (US Future)", bg="#252525", fg="#ffc107", font=("Meiryo", 10, "bold")).pack(pady=5)
+        self.lbl_g_usd = ttk.Label(g_panel, text="---", style="Val.TLabel", background="#252525")
+        self.lbl_g_usd.pack()
+        tk.Label(g_panel, text="理論価格 (円/g)", bg="#252525", fg="#888", font=("Meiryo", 8)).pack(pady=(10,0))
+        self.lbl_g_jpy = tk.Label(g_panel, text="---", font=("Consolas", 12, "bold"), bg="#252525", fg="#fff")
+        self.lbl_g_jpy.pack()
+        tk.Label(g_panel, text="OSE差額", bg="#252525", fg="#888", font=("Meiryo", 8)).pack(pady=(5,0))
+        self.lbl_g_diff = ttk.Label(g_panel, text="---", style="DiffPlus.TLabel", background="#252525")
+        self.lbl_g_diff.pack(pady=5)
+
+        # 白金パネル
+        p_panel = tk.Frame(grid_frame, bg="#252525", bd=1, relief="solid")
+        p_panel.pack(side="left", fill="both", expand=True, padx=5)
+        tk.Label(p_panel, text="Platinum (US Future)", bg="#252525", fg="#b0bec5", font=("Meiryo", 10, "bold")).pack(pady=5)
+        self.lbl_p_usd = ttk.Label(p_panel, text="---", style="Val.TLabel", background="#252525")
+        self.lbl_p_usd.pack()
+        tk.Label(p_panel, text="理論価格 (円/g)", bg="#252525", fg="#888", font=("Meiryo", 8)).pack(pady=(10,0))
+        self.lbl_p_jpy = tk.Label(p_panel, text="---", font=("Consolas", 12, "bold"), bg="#252525", fg="#fff")
+        self.lbl_p_jpy.pack()
+        tk.Label(p_panel, text="OSE差額", bg="#252525", fg="#888", font=("Meiryo", 8)).pack(pady=(5,0))
+        self.lbl_p_diff = ttk.Label(p_panel, text="---", style="DiffPlus.TLabel", background="#252525")
+        self.lbl_p_diff.pack(pady=5)
+
+        # 4. 履歴テーブル
+        hist_frame = tk.Frame(self, bg="#1e1e1e")
+        hist_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        cols = ("Time", "OSE_G", "Diff_G", "OSE_P", "Diff_P")
+        self.tree = ttk.Treeview(hist_frame, columns=cols, show="headings", height=5)
+        
+        # カラム設定
+        self.tree.heading("Time", text="時刻")
+        self.tree.heading("OSE_G", text="OSE金")
+        self.tree.heading("Diff_G", text="金差額")
+        self.tree.heading("OSE_P", text="OSE白金")
+        self.tree.heading("Diff_P", text="白金差額")
+        
+        self.tree.column("Time", width=80, anchor="center")
+        self.tree.column("OSE_G", width=80, anchor="e")
+        self.tree.column("Diff_G", width=80, anchor="e")
+        self.tree.column("OSE_P", width=80, anchor="e")
+        self.tree.column("Diff_P", width=80, anchor="e")
+        
+        self.tree.pack(fill="both", expand=True)
+        
+        # 履歴読み込み
+        self.load_history_view()
+
+        # GUI更新ループ開始
+        self.update_ui_loop()
+
+    def load_config(self):
+        self.config = {}
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, "r") as f:
+                    self.config = json.load(f)
+            except: pass
+
+    def save_config(self):
+        try:
+            self.config["ose_gold"] = self.entry_gold.get()
+            self.config["ose_plat"] = self.entry_plat.get()
+            with open(CONFIG_FILE, "w") as f:
+                json.dump(self.config, f)
+        except: pass
+
+    def update_ui_loop(self):
+        # 画面更新 (100msごと)
+        try:
+            fx = market_data['usdjpy']
+            g = market_data['gold']
+            p = market_data['plat']
+
+            if fx > 0: self.lbl_fx.config(text=f"{fx:.2f} 円")
+            if g > 0: self.lbl_g_usd.config(text=f"${g:,.1f}")
+            if p > 0: self.lbl_p_usd.config(text=f"${p:,.1f}")
+
+            # 計算
+            try:
+                ose_g = float(self.entry_gold.get())
+                ose_p = float(self.entry_plat.get())
                 
-    except Exception as e:
-        print(f"China Plat Error: {e}")
+                # 計算結果の一時保存（記録用）
+                self.calc_res = {"og": ose_g, "op": ose_p, "gd": 0, "pd": 0}
 
-    return gold, plat
+                if fx > 0 and g > 0:
+                    g_jpy = (g / OZ) * fx
+                    g_diff = ose_g - g_jpy
+                    self.lbl_g_jpy.config(text=f"{g_jpy:,.0f}")
+                    
+                    sign = "+" if g_diff > 0 else ""
+                    self.lbl_g_diff.config(text=f"{sign}{g_diff:,.0f}", style="DiffPlus.TLabel" if g_diff > 0 else "DiffMinus.TLabel")
+                    self.calc_res["gd"] = int(g_diff)
 
-def get_market_data():
-    data = {
-        "usdjpy": 0.0, "cnyjpy": 0.0,
-        "us_gold": 0.0, "us_plat": 0.0,
-        "cn_gold": 0.0, "cn_plat": 0.0
-    }
+                if fx > 0 and p > 0:
+                    p_jpy = (p / OZ) * fx
+                    p_diff = ose_p - p_jpy
+                    self.lbl_p_jpy.config(text=f"{p_jpy:,.0f}")
+                    
+                    sign = "+" if p_diff > 0 else ""
+                    self.lbl_p_diff.config(text=f"{sign}{p_diff:,.0f}", style="DiffPlus.TLabel" if p_diff > 0 else "DiffMinus.TLabel")
+                    self.calc_res["pd"] = int(p_diff)
 
-    # 1. 為替 (ExchangeRate-API)
-    try:
-        r = requests.get("https://api.exchangerate-api.com/v4/latest/USD", timeout=3)
-        d = r.json()
-        data["usdjpy"] = d["rates"]["JPY"]
-        # CNYレート
-        if "CNY" in d["rates"]:
-            data["cnyjpy"] = data["usdjpy"] / d["rates"]["CNY"]
+            except ValueError:
+                pass # 入力中などで数値でない場合
+
+        except Exception as e:
+            print(e)
+
+        self.after(100, self.update_ui_loop)
+
+    def save_log(self):
+        self.save_config() # 入力値保存
+        
+        if not hasattr(self, 'calc_res'): return
+
+        now = datetime.now()
+        date_str = now.strftime("%Y-%m-%d")
+        time_str = now.strftime("%H:%M")
+        
+        # CSV読み込み
+        rows = []
+        if os.path.exists(LOG_FILE):
+            with open(LOG_FILE, "r", encoding="utf-8") as f:
+                rows = f.readlines()
+        
+        # ヘッダーがなければ作成
+        if not rows:
+            rows.append("Date,Time,OSE_G,Diff_G,OSE_P,Diff_P\n")
+
+        # 同日行があれば削除
+        new_rows = [r for r in rows if not r.startswith(date_str)]
+        
+        # 新しい行を作成
+        new_line = f"{date_str},{time_str},{self.calc_res['og']},{self.calc_res['gd']},{self.calc_res['op']},{self.calc_res['pd']}\n"
+        
+        # ヘッダーの直後に挿入 (最新を上に)
+        if len(new_rows) > 0:
+            new_rows.insert(1, new_line)
         else:
-            # 万が一CNYがない場合の予備 (手動計算に近い値 1ドル=7.25元想定)
-            data["cnyjpy"] = data["usdjpy"] / 7.25
-    except:
-        pass
+            new_rows.append(new_line)
 
-    # 2. US市場
-    # Gold (CoinGecko is most stable)
-    try:
-        r = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=pax-gold&vs_currencies=usd", headers=HEADERS, timeout=5)
-        data["us_gold"] = r.json()["pax-gold"]["usd"]
-    except:
-        pass
-    
-    # Platinum (Yahoo Finance)
-    try:
-        r = requests.get("https://query1.finance.yahoo.com/v8/finance/chart/PL=F?interval=1d&range=1d", headers=HEADERS, timeout=5)
-        data["us_plat"] = r.json()["chart"]["result"][0]["meta"]["regularMarketPrice"]
-    except:
-        pass
+        # 20件制限 (ヘッダー1行 + データ20行)
+        if len(new_rows) > 21:
+            new_rows = new_rows[:21]
 
-    # 3. 中国市場 (Eastmoney APIへ変更)
-    data["cn_gold"], data["cn_plat"] = get_china_data_eastmoney()
+        # 保存
+        with open(LOG_FILE, "w", encoding="utf-8") as f:
+            f.writelines(new_rows)
+            
+        self.load_history_view()
 
-    return data
-
-# ==========================================
-# 履歴保存
-# ==========================================
-def update_history(ose_g, ose_p, us_g_jpy, us_p_jpy, cn_g_jpy, cn_p_jpy):
-    # 日本時間
-    t_delta = datetime.timedelta(hours=9)
-    JST = datetime.timezone(t_delta, 'JST')
-    dt_now = datetime.datetime.now(JST)
-    today_str = dt_now.strftime('%Y-%m-%d')
-    time_str = dt_now.strftime('%H:%M')
-
-    new_row = {
-        "日付": today_str,
-        "時刻": time_str,
-        "OSE金": round(ose_g),
-        "US金(換算)": round(us_g_jpy),
-        "中国金(換算)": round(cn_g_jpy),
-        "OSE白金": round(ose_p),
-        "US白金(換算)": round(us_p_jpy),
-        "中国白金(換算)": round(cn_p_jpy)
-    }
-
-    if os.path.exists(HISTORY_FILE):
-        df = pd.read_csv(HISTORY_FILE)
-    else:
-        df = pd.DataFrame(columns=new_row.keys())
-
-    # 同日上書きロジック
-    df = df[df["日付"] != today_str]
-    df_new = pd.DataFrame([new_row])
-    df = pd.concat([df_new, df], ignore_index=True)
-    df = df.head(20)
-    df.to_csv(HISTORY_FILE, index=False)
-    
-    return df
-
-# ==========================================
-# メインアプリ
-# ==========================================
-def main():
-    st.set_page_config(page_title="Gold/Plat Monitor", layout="wide")
-    st.title("🌏 リアルタイム裁定モニター (Eastmoney版)")
-
-    # --- OSE入力 ---
-    st.markdown("### 🇯🇵 日本 OSE (円建て/手入力)")
-    c1, c2, c3 = st.columns([1.5, 1.5, 1])
-    with c1:
-        ose_gold = st.number_input("OSE 金標準 (円/g)", value=13500.0, step=10.0, format="%.0f")
-    with c2:
-        ose_plat = st.number_input("OSE 白金標準 (円/g)", value=4600.0, step=10.0, format="%.0f")
-    with c3:
-        st.write("")
-        st.write("")
-        if st.button("データ更新 & 記録", type="primary"):
-            st.rerun()
-
-    st.markdown("---")
-
-    # データ取得
-    d = get_market_data()
-
-    # 計算
-    us_g_jpy = (d["us_gold"]/OZ)*d["usdjpy"] if d["us_gold"] and d["usdjpy"] else 0
-    us_p_jpy = (d["us_plat"]/OZ)*d["usdjpy"] if d["us_plat"] and d["usdjpy"] else 0
-    cn_g_jpy = d["cn_gold"]*d["cnyjpy"] if d["cn_gold"] and d["cnyjpy"] else 0
-    cn_p_jpy = d["cn_plat"]*d["cnyjpy"] if d["cn_plat"] and d["cnyjpy"] else 0
-
-    # 履歴保存 (データが取れた場合のみ)
-    if us_g_jpy > 0 or cn_g_jpy > 0:
-        df_hist = update_history(ose_gold, ose_plat, us_g_jpy, us_p_jpy, cn_g_jpy, cn_p_jpy)
-    else:
-        if os.path.exists(HISTORY_FILE):
-            df_hist = pd.read_csv(HISTORY_FILE)
-        else:
-            df_hist = pd.DataFrame()
-
-    # --- 表示 ---
-    col_us, col_cn = st.columns(2)
-
-    # US
-    with col_us:
-        st.header("🇺🇸 米国市場 (ドル建て)")
-        if d["usdjpy"]: st.metric("ドル円", f"{d['usdjpy']:.2f} 円")
-        else: st.error("為替エラー")
-        st.markdown("---")
-        
-        # Gold
-        st.subheader("金 (NY Gold)")
-        if d["us_gold"]:
-            st.metric("NY価格", f"${d['us_gold']:,.2f}")
-            st.info(f"理論価格: {us_g_jpy:,.0f} 円/g")
-            diff = ose_gold - us_g_jpy
-            if diff > 0: st.error(f"OSE割高: +{diff:,.0f} 円")
-            else: st.success(f"OSE割安: {diff:,.0f} 円")
-        else: st.warning("取得失敗")
-        
-        st.markdown("---")
-        
-        # Plat
-        st.subheader("白金 (NY Plat)")
-        if d["us_plat"]:
-            st.metric("NY価格", f"${d['us_plat']:,.2f}")
-            st.info(f"理論価格: {us_p_jpy:,.0f} 円/g")
-            diff = ose_plat - us_p_jpy
-            if diff > 0: st.error(f"OSE割高: +{diff:,.0f} 円")
-            else: st.success(f"OSE割安: {diff:,.0f} 円")
-        else: st.warning("取得失敗")
-
-    # China
-    with col_cn:
-        st.header("🇨🇳 中国市場 (元建て)")
-        if d["cnyjpy"]: st.metric("元円", f"{d['cnyjpy']:.2f} 円")
-        else: st.error("為替エラー")
-        st.markdown("---")
-
-        # Gold
-        st.subheader("金 (上海 Au 主力)")
-        if d["cn_gold"]:
-            st.metric("上海価格", f"{d['cn_gold']:,.2f} 元/g")
-            st.info(f"換算価格: {cn_g_jpy:,.0f} 円/g")
-            diff = ose_gold - cn_g_jpy
-            if diff > 0: st.error(f"OSE割高: +{diff:,.0f} 円")
-            else: st.success(f"OSE割安: {diff:,.0f} 円")
-        else: st.warning("取得失敗 (Eastmoney)")
-
-        st.markdown("---")
-
-        # Plat
-        st.subheader("白金 (広州 Pt 主力)")
-        if d["cn_plat"]:
-            st.metric("広州価格", f"{d['cn_plat']:,.2f} 元/g")
-            st.info(f"換算価格: {cn_p_jpy:,.0f} 円/g")
-            diff = ose_plat - cn_p_jpy
-            if diff > 0: st.error(f"OSE割高: +{diff:,.0f} 円")
-            else: st.success(f"OSE割安: {diff:,.0f} 円")
-        else: st.warning("取得失敗 (Eastmoney)")
-
-    # 履歴
-    st.markdown("---")
-    st.markdown("### 📊 過去20日間の記録")
-    if not df_hist.empty:
-        st.dataframe(df_hist, use_container_width=True, hide_index=True)
+    def load_history_view(self):
+        # ツリービューをクリア
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+            
+        if os.path.exists(LOG_FILE):
+            with open(LOG_FILE, "r", encoding="utf-8") as f:
+                lines = f.readlines()[1:] # ヘッダー飛ばす
+                for line in lines:
+                    cols = line.strip().split(",")
+                    if len(cols) >= 6:
+                        # Time, OSE_G, Diff_G, OSE_P, Diff_P
+                        display_row = (cols[1], cols[2], cols[3], cols[4], cols[5])
+                        self.tree.insert("", "end", values=display_row)
 
 if __name__ == "__main__":
-    main()
+    app = App()
+    app.mainloop()
