@@ -69,7 +69,7 @@ def save_history(usdjpy, ose_g, g_diff, ose_p, p_diff):
     return df
 
 # ==========================================
-# 3. カスタムCSS (UIの完全再現)
+# 3. カスタムCSS
 # ==========================================
 CUSTOM_CSS = """
 <style>
@@ -79,14 +79,12 @@ CUSTOM_CSS = """
         font-family: 'Helvetica Neue', Arial, sans-serif;
     }
     
-    /* 上部の余白を削除 */
     .block-container {
-        padding-top: 1.5rem !important;
+        padding-top: 2rem !important;
         padding-bottom: 2rem !important;
         max-width: 800px !important;
     }
     
-    /* ヘッダー */
     h2 {
         color: #e0e0e0 !important;
         font-size: 1.3rem !important;
@@ -95,13 +93,11 @@ CUSTOM_CSS = """
         margin-bottom: 20px !important;
     }
 
-    /* --- 入力フォームのカスタマイズ (ここが重要) --- */
-    /* ラベルの色とサイズ */
+    /* --- 入力フォーム --- */
     div[data-testid="stNumberInput"] label {
         color: #aaa !important;
         font-size: 0.8rem !important;
     }
-    /* 入力ボックス本体 */
     div[data-testid="stNumberInput"] input {
         background-color: #000 !important;
         color: #fff !important;
@@ -111,47 +107,42 @@ CUSTOM_CSS = """
         font-weight: bold;
         text-align: right;
     }
-    /* 入力ボックスのフォーカス時 */
     div[data-testid="stNumberInput"] input:focus {
         border-color: #ffc107 !important;
         box-shadow: none !important;
     }
-    /* 上下の増減ボタンを隠す（オプション） */
-    div[data-testid="stNumberInput"] button {
-        background-color: #222 !important;
-        color: #888 !important;
-        border: none !important;
-    }
 
-    /* --- ボタンのカスタマイズ --- */
-    /* 全ボタン共通 */
+    /* --- ボタン --- */
+    /* ボタンの共通スタイル */
     div.stButton > button {
         width: 100%;
         border-radius: 4px !important;
         font-weight: bold !important;
         border: none !important;
-        padding: 0.5rem !important;
-        height: auto !important;
+        padding: 0.6rem !important;
         line-height: 1.2 !important;
+        margin-top: 5px;
     }
-    /* 更新のみボタン (Secondary) */
-    div[data-testid="stHorizontalBlock"] > div:nth-child(1) div.stButton > button {
+    
+    /* 更新のみボタン (カラム1) */
+    div[data-testid="column"]:nth-of-type(1) div.stButton > button {
         background-color: #0277bd !important;
         color: white !important;
     }
-    div[data-testid="stHorizontalBlock"] > div:nth-child(1) div.stButton > button:hover {
+    div[data-testid="column"]:nth-of-type(1) div.stButton > button:hover {
         background-color: #01579b !important;
     }
-    /* 保存ボタン (Primary) */
-    div[data-testid="stHorizontalBlock"] > div:nth-child(2) div.stButton > button {
+    
+    /* 更新＆保存ボタン (カラム2) */
+    div[data-testid="column"]:nth-of-type(2) div.stButton > button {
         background-color: #e65100 !important;
         color: white !important;
     }
-    div[data-testid="stHorizontalBlock"] > div:nth-child(2) div.stButton > button:hover {
+    div[data-testid="column"]:nth-of-type(2) div.stButton > button:hover {
         background-color: #bf360c !important;
     }
 
-    /* --- HTML表示エリアのデザイン --- */
+    /* --- カードデザイン --- */
     .custom-card {
         background-color: #1e1e1e;
         border: 1px solid #333;
@@ -203,25 +194,23 @@ def main():
 
     st.markdown("<h2>🇺🇸 US/OSE Monitor & Predictor</h2>", unsafe_allow_html=True)
 
-    # --- 1. 入力 & ボタンエリア (デザイン調整済み) ---
-    col1, col2, col3 = st.columns([1.5, 1.5, 2])
-    
-    with col1:
+    # --- 1. 入力エリア (横並び) ---
+    c_in1, c_in2 = st.columns(2)
+    with c_in1:
         ose_gold = st.number_input("OSE 金 (円)", value=st.session_state['ose_g'], step=10.0, format="%.0f")
-    with col2:
+    with c_in2:
         ose_plat = st.number_input("OSE 白金 (円)", value=st.session_state['ose_p'], step=10.0, format="%.0f")
-    with col3:
-        st.write("") # スペーサー
-        st.write("")
-        # ボタンを横並びに
-        c_b1, c_b2 = st.columns(2)
-        with c_b1:
-            if st.button("更新のみ"):
-                st.session_state['ose_g'] = ose_gold
-                st.session_state['ose_p'] = ose_plat
-                st.rerun()
-        with c_b2:
-            save_clicked = st.button("更新＆保存")
+
+    # --- 2. ボタンエリア (横並び) ---
+    st.write("") # 少し隙間
+    c_btn1, c_btn2 = st.columns(2)
+    with c_btn1:
+        if st.button("更新のみ", use_container_width=True):
+            st.session_state['ose_g'] = ose_gold
+            st.session_state['ose_p'] = ose_plat
+            st.rerun()
+    with c_btn2:
+        save_clicked = st.button("更新＆保存", type="primary", use_container_width=True)
 
     # --- データ取得 & 計算 ---
     d = get_market_data()
@@ -253,22 +242,21 @@ def main():
     pred_p = us_p_jpy + last_p_spread if us_p_jpy > 0 else 0
 
     # ==========================================
-    # HTMLコンポーネント生成 (見た目の制御)
+    # HTMLコンポーネント
     # ==========================================
+    
     def fmt_diff(val):
         sign = "+" if val > 0 else ""
         cls = "plus" if val > 0 else "minus"
         return f'<span class="diff-val {cls}">{sign}{val:,.0f}</span> <span style="font-size:0.8rem">円</span>'
 
-    # 為替
     html_fx = f"""
-    <div class="custom-card card-fx" style="display:flex; justify-content:space-between; align-items:center; padding:10px 15px;">
+    <div class="custom-card card-fx" style="display:flex; justify-content:space-between; align-items:center; padding:10px 15px; margin-top:20px;">
         <span style="font-weight:bold; color:#aaa;">USD/JPY</span>
         <div><span class="val-main" style="font-size:1.5rem;">{d['usdjpy']:.2f}</span><span class="unit">円</span></div>
     </div>
     """
 
-    # 金カード
     html_gold = f"""
     <div class="custom-card card-gold">
         <div class="card-label"><span>NY Gold</span><span>$/oz</span></div>
@@ -283,7 +271,6 @@ def main():
     </div>
     """
 
-    # 白金カード
     html_plat = f"""
     <div class="custom-card card-plat">
         <div class="card-label"><span>NY Platinum</span><span>$/oz</span></div>
@@ -298,7 +285,6 @@ def main():
     </div>
     """
 
-    # 予想セクション
     html_pred = f"""
     <div class="sim-box">
         <div class="sim-title">🚀 OSE再開時 予想価格 <span style="font-weight:normal; font-size:0.7rem; color:#888;">(理論値 + 最終記録スプレッド)</span></div>
@@ -317,7 +303,6 @@ def main():
     </div>
     """
 
-    # 履歴テーブル
     rows_html = ""
     if not df_hist.empty:
         for _, row in df_hist.iterrows():
