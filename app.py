@@ -3,21 +3,18 @@ import requests
 import pandas as pd
 import datetime
 import os
-import time
 
 # ==========================================
 # 設定 & 定数
 # ==========================================
 OZ = 31.1034768  # 1トロイオンス
-HISTORY_FILE = "arb_history.csv" # 履歴保存ファイル
+HISTORY_FILE = "arb_history.csv"
 
-# ブラウザのふりをするヘッダー (ブロック回避用)
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-}
+# APIヘッダー (ブロック回避用)
+HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 # ==========================================
-# データ取得関数
+# 1. データ取得ロジック
 # ==========================================
 def get_market_data():
     data = {"usdjpy": 0.0, "gold": 0.0, "plat": 0.0}
@@ -28,7 +25,7 @@ def get_market_data():
         data["usdjpy"] = r.json()["rates"]["JPY"]
     except: pass
 
-    # 2. 金 (CoinGecko - PAXG) - 最も安定
+    # 2. 金 (CoinGecko - PAXG)
     try:
         r = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=pax-gold&vs_currencies=usd", headers=HEADERS, timeout=3)
         data["gold"] = r.json()["pax-gold"]["usd"]
@@ -44,43 +41,34 @@ def get_market_data():
     return data
 
 # ==========================================
-# 履歴管理関数
+# 2. 履歴管理ロジック (CSV)
 # ==========================================
 def load_history():
     if os.path.exists(HISTORY_FILE):
         return pd.read_csv(HISTORY_FILE)
-    else:
-        return pd.DataFrame(columns=["日付", "時刻", "為替", "OSE金", "金差額", "OSE白金", "白金差額", "最終金スプレッド", "最終白金スプレッド"])
+    return pd.DataFrame()
 
-def save_history_log(usdjpy, ose_g, g_diff, ose_p, p_diff):
-    df = load_history()
-    
-    # 日本時間取得
-    t_delta = datetime.timedelta(hours=9)
-    JST = datetime.timezone(t_delta, 'JST')
-    now = datetime.datetime.now(JST)
-    today_str = now.strftime('%Y-%m-%d')
+def save_history(usdjpy, ose_g, g_diff, ose_p, p_diff):
+    if os.path.exists(HISTORY_FILE):
+        df = pd.read_csv(HISTORY_FILE)
+    else:
+        df = pd.DataFrame(columns=["date", "time", "rate", "oseG", "gDiff", "oseP", "pDiff"])
+
+    now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
+    date_str = now.strftime('%Y-%m-%d')
     time_str = now.strftime('%H:%M')
 
     new_row = {
-        "日付": today_str,
-        "時刻": time_str,
-        "為替": f"{usdjpy:.2f}",
-        "OSE金": int(ose_g),
-        "金差額": int(g_diff),
-        "OSE白金": int(ose_p),
-        "白金差額": int(p_diff),
-        "最終金スプレッド": int(g_diff),   # 予想計算用に数値として保持
-        "最終白金スプレッド": int(p_diff) # 予想計算用に数値として保持
+        "date": date_str, "time": time_str, "rate": f"{usdjpy:.2f}",
+        "oseG": int(ose_g), "gDiff": int(g_diff),
+        "oseP": int(ose_p), "pDiff": int(p_diff)
     }
 
-    # 同じ日付のデータがあれば削除（上書き用）
-    df = df[df["日付"] != today_str]
-    
-    # 新しい行を先頭に追加
+    # 同日上書き
+    df = df[df["date"] != date_str]
+    # 先頭に追加
     df_new = pd.DataFrame([new_row])
     df = pd.concat([df_new, df], ignore_index=True)
-    
     # 20件制限
     df = df.head(20)
     
@@ -88,176 +76,235 @@ def save_history_log(usdjpy, ose_g, g_diff, ose_p, p_diff):
     return df
 
 # ==========================================
-# メインアプリ
+# 3. UI (CSSスタイル定義)
+# ==========================================
+# HTML版と同じデザインにするためのCSS
+CUSTOM_CSS = """
+<style>
+    /* 全体の背景とフォント */
+    .stApp { background-color: #121212; color: #e0e0e0; font-family: 'Helvetica Neue', Arial, sans-serif; }
+    
+    /* カードデザイン */
+    .custom-card {
+        background-color: #1e1e1e;
+        border: 1px solid #333;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 10px;
+        position: relative;
+    }
+    .card-fx { border-left: 5px solid #009688; }
+    .card-gold { border-left: 5px solid #ffc107; }
+    .card-plat { border-left: 5px solid #b0bec5; }
+    
+    /* テキストスタイル */
+    .card-label { font-size: 0.8rem; color: #aaa; display: flex; justify-content: space-between; margin-bottom: 5px; }
+    .val-main { font-size: 1.8rem; font-weight: bold; font-family: monospace; text-align: right; color: #fff; margin: 0; line-height: 1.2; }
+    .unit { font-size: 0.9rem; color: #666; margin-left: 5px; }
+    
+    /* 計算エリア */
+    .calc-area { border-top: 1px dashed #444; margin-top: 8px; padding-top: 8px; }
+    .row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
+    .row-lbl { font-size: 0.75rem; color: #888; }
+    .row-val { font-size: 1rem; font-weight: bold; color: #fff; font-family: monospace; }
+    .diff-val { font-size: 1.1rem; font-weight: bold; font-family: monospace; }
+    .plus { color: #ff5252; }
+    .minus { color: #69f0ae; }
+
+    /* 予想エリア */
+    .sim-box { background: #261a1a; border: 1px solid #5d4037; padding: 10px; border-radius: 6px; margin-bottom: 20px; }
+    .sim-title { font-size: 0.9rem; font-weight: bold; color: #ffab91; margin-bottom: 5px; }
+    .sim-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .sim-item { background: rgba(0,0,0,0.3); padding: 8px; border-radius: 4px; border-left: 3px solid #555; }
+    .sim-val { font-size: 1.4rem; font-weight: bold; color: #fff; text-align: right; }
+    
+    /* 履歴テーブル */
+    .hist-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    .hist-table th { background: #2d2d2d; color: #ccc; padding: 6px; border: 1px solid #444; text-align: center; }
+    .hist-table td { border: 1px solid #444; padding: 6px; text-align: center; color: #ddd; }
+    .hist-row:nth-child(even) { background: #1a1a1a; }
+    
+    /* Streamlit標準の余白を消す */
+    .block-container { padding-top: 2rem; padding-bottom: 2rem; max-width: 900px; }
+    div[data-testid="stNumberInput"] label { font-size: 0.8rem; color: #aaa; }
+</style>
+"""
+
+# ==========================================
+# 4. メインアプリ
 # ==========================================
 def main():
-    st.set_page_config(page_title="US/OSE Monitor", layout="wide")
-    
-    st.title("🇺🇸 US/OSE リアルタイム裁定モニター")
+    st.set_page_config(page_title="US/OSE Monitor", layout="centered")
+    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-    # --- Session State 初期化 (入力値保持のため) ---
+    # セッション状態（入力値保持）
     if 'ose_g' not in st.session_state: st.session_state['ose_g'] = 13500.0
     if 'ose_p' not in st.session_state: st.session_state['ose_p'] = 4600.0
 
-    # ==========================================
-    # 1. OSE入力 & アクションボタン
-    # ==========================================
-    with st.container():
-        st.subheader("🇯🇵 日本 OSE (手入力)")
-        col_in1, col_in2, col_btn = st.columns([2, 2, 3])
-        
-        with col_in1:
-            ose_gold = st.number_input("OSE 金 (円/g)", value=st.session_state['ose_g'], step=10.0, format="%.0f", key="input_g")
-        
-        with col_in2:
-            ose_plat = st.number_input("OSE 白金 (円/g)", value=st.session_state['ose_p'], step=10.0, format="%.0f", key="input_p")
-        
-        with col_btn:
-            st.write("") # 余白調整
-            st.write("")
-            c_btn1, c_btn2 = st.columns(2)
-            with c_btn1:
-                # 更新のみ（保存しない）
-                if st.button("🔄 データ更新のみ", type="secondary", use_container_width=True):
-                    st.session_state['ose_g'] = ose_gold
-                    st.session_state['ose_p'] = ose_plat
-                    st.rerun()
-            with c_btn2:
-                # 更新＆保存
-                save_clicked = st.button("💾 更新 & 履歴保存", type="primary", use_container_width=True)
+    st.markdown("<h2 style='margin:0 0 15px 0; font-size:1.4rem;'>🇺🇸 US/OSE Monitor & Predictor</h2>", unsafe_allow_html=True)
 
-    st.markdown("---")
+    # --- 入力 & ボタン ---
+    col1, col2, col3 = st.columns([1.5, 1.5, 2])
+    with col1:
+        ose_gold = st.number_input("OSE 金 (円)", value=st.session_state['ose_g'], step=10.0, format="%.0f")
+    with col2:
+        ose_plat = st.number_input("OSE 白金 (円)", value=st.session_state['ose_p'], step=10.0, format="%.0f")
+    with col3:
+        st.write("") # スペーサー
+        st.write("")
+        c_b1, c_b2 = st.columns(2)
+        with c_b1:
+            if st.button("更新のみ", use_container_width=True):
+                st.session_state['ose_g'] = ose_gold
+                st.session_state['ose_p'] = ose_plat
+                st.rerun()
+        with c_b2:
+            save_clicked = st.button("更新＆保存", type="primary", use_container_width=True)
 
-    # ==========================================
-    # 2. データ取得 & 計算
-    # ==========================================
-    with st.spinner('US市場データを取得中...'):
-        d = get_market_data()
+    # --- データ取得 ---
+    d = get_market_data()
 
     # 計算
-    us_gold_jpy = 0
-    us_plat_jpy = 0
-    g_diff = 0
-    p_diff = 0
+    us_g_jpy = 0; g_diff = 0
+    us_p_jpy = 0; p_diff = 0
 
     if d["usdjpy"] > 0:
         if d["gold"] > 0:
-            us_gold_jpy = (d["gold"] / OZ) * d["usdjpy"]
-            g_diff = ose_gold - us_gold_jpy
+            us_g_jpy = (d["gold"] / OZ) * d["usdjpy"]
+            g_diff = ose_gold - us_g_jpy
         if d["plat"] > 0:
-            us_plat_jpy = (d["plat"] / OZ) * d["usdjpy"]
-            p_diff = ose_plat - us_plat_jpy
+            us_p_jpy = (d["plat"] / OZ) * d["usdjpy"]
+            p_diff = ose_plat - us_p_jpy
 
-    # 保存ボタンが押された場合の処理
+    # 保存処理
     if save_clicked:
         st.session_state['ose_g'] = ose_gold
         st.session_state['ose_p'] = ose_plat
-        if us_gold_jpy > 0 and us_plat_jpy > 0:
-            save_history_log(d["usdjpy"], ose_gold, g_diff, ose_plat, p_diff)
-            st.success("履歴を保存しました")
+        if us_g_jpy > 0:
+            save_history(d["usdjpy"], ose_gold, g_diff, ose_plat, p_diff)
+            st.toast("履歴を保存しました", icon="💾")
+
+    # --- 履歴読み込み (予想用) ---
+    df_hist = load_history()
+    last_g_spread = df_hist.iloc[0]["gDiff"] if not df_hist.empty else 0
+    last_p_spread = df_hist.iloc[0]["pDiff"] if not df_hist.empty else 0
+
+    # 予想価格計算
+    pred_g = us_g_jpy + last_g_spread if us_g_jpy > 0 else 0
+    pred_p = us_p_jpy + last_p_spread if us_p_jpy > 0 else 0
 
     # ==========================================
-    # 3. メイン表示 (左: US情報 / 右: 差額・予想)
+    # 5. HTMLコンポーネントの構築 (コンパクト表示)
     # ==========================================
-    col_main_l, col_main_r = st.columns(2)
-
-    # --- 左側：US市場価格 ---
-    with col_main_l:
-        st.header("🇺🇸 US市場 (Realtime)")
-        
-        # 為替
-        st.metric(label="1. ドル円 (USD/JPY)", value=f"{d['usdjpy']:.2f} 円")
-        
-        st.markdown("---")
-        
-        # 金
-        st.subheader("2. 金 (NY Gold)")
-        st.metric(label="ドル建て価格", value=f"${d['gold']:,.2f}")
-        st.info(f"理論価格 (税抜): {us_gold_jpy:,.0f} 円/g")
-
-        st.markdown("---")
-
-        # 白金
-        st.subheader("3. 白金 (NY Platinum)")
-        st.metric(label="ドル建て価格", value=f"${d['plat']:,.2f}")
-        st.info(f"理論価格 (税抜): {us_plat_jpy:,.0f} 円/g")
-
-    # --- 右側：OSE差額 & 予想 ---
-    with col_main_r:
-        st.header("📊 OSE差額 & 夜間予想")
-
-        # 履歴読み込み (予想計算用)
-        df_hist = load_history()
-        last_g_spread = 0
-        last_p_spread = 0
-        if not df_hist.empty:
-            last_g_spread = df_hist.iloc[0]["最終金スプレッド"]
-            last_p_spread = df_hist.iloc[0]["最終白金スプレッド"]
-
-        # 空白調整
-        st.write("")
-        st.write("")
-        st.write("")
-        st.write("")
-
-        # 金 差額 & 予想
-        st.markdown("#### 金 (Gold) 状況")
-        if g_diff > 0:
-            st.error(f"現在、OSEが {g_diff:,.0f} 円 割高 (Premium)")
-        else:
-            st.success(f"現在、OSEが {abs(g_diff):,.0f} 円 割安 (Discount)")
-        
-        # 予想表示
-        pred_g = us_gold_jpy + last_g_spread
-        st.markdown(f"""
-        <div style="background-color:#333; padding:10px; border-radius:5px; border-left:5px solid #ffc107;">
-            <small>🚀 OSE再開時 予想価格 (理論値 + 最終記録スプレッド)</small><br>
-            <span style="font-size:1.5em; font-weight:bold; color:#fff;">{pred_g:,.0f} 円</span>
-            <br><small style="color:#aaa;">(最終記録スプレッド: {last_g_spread:+} 円)</small>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("---")
-
-        # 白金 差額 & 予想
-        st.markdown("#### 白金 (Platinum) 状況")
-        if p_diff > 0:
-            st.error(f"現在、OSEが {p_diff:,.0f} 円 割高 (Premium)")
-        else:
-            st.success(f"現在、OSEが {abs(p_diff):,.0f} 円 割安 (Discount)")
-
-        # 予想表示
-        pred_p = us_plat_jpy + last_p_spread
-        st.markdown(f"""
-        <div style="background-color:#333; padding:10px; border-radius:5px; border-left:5px solid #b0bec5;">
-            <small>🚀 OSE再開時 予想価格 (理論値 + 最終記録スプレッド)</small><br>
-            <span style="font-size:1.5em; font-weight:bold; color:#fff;">{pred_p:,.0f} 円</span>
-            <br><small style="color:#aaa;">(最終記録スプレッド: {last_p_spread:+} 円)</small>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # ==========================================
-    # 4. 履歴ログテーブル
-    # ==========================================
-    st.markdown("---")
-    st.subheader("📝 過去20日間の記録 (最終更新値)")
     
-    if not df_hist.empty:
-        # 表示用にカラムを整理
-        display_df = df_hist[["日付", "時刻", "為替", "OSE金", "金差額", "OSE白金", "白金差額"]]
-        
-        # 色付けロジック (Pandas Styler)
-        def color_diff(val):
-            color = '#ff5252' if val > 0 else '#69f0ae' # 赤:割高, 緑:割安
-            return f'color: {color}; font-weight: bold'
+    # フォーマット関数
+    def fmt_diff(val):
+        sign = "+" if val > 0 else ""
+        cls = "plus" if val > 0 else "minus"
+        return f'<span class="diff-val {cls}">{sign}{val:,.0f}</span> <span style="font-size:0.8rem">円</span>'
 
-        st.dataframe(
-            display_df.style.map(color_diff, subset=["金差額", "白金差額"]),
-            use_container_width=True,
-            hide_index=True
-        )
+    # 為替カードHTML
+    html_fx = f"""
+    <div class="custom-card card-fx" style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-weight:bold; color:#aaa;">USD/JPY</span>
+        <div><span class="val-main">{d['usdjpy']:.2f}</span><span class="unit">円</span></div>
+    </div>
+    """
+
+    # 金カードHTML
+    html_gold = f"""
+    <div class="custom-card card-gold">
+        <div class="card-label"><span>NY Gold</span><span>$/oz</span></div>
+        <div class="val-main">{d['gold']:,.2f}</div>
+        <div class="calc-area">
+            <div class="row"><span class="row-lbl">理論価格</span><span class="row-val">{us_g_jpy:,.0f} 円</span></div>
+            <div class="row" style="margin-top:5px; align-items:center;">
+                <span class="row-lbl">OSE差額</span>
+                <div>{fmt_diff(g_diff)}</div>
+            </div>
+        </div>
+    </div>
+    """
+
+    # 白金カードHTML
+    html_plat = f"""
+    <div class="custom-card card-plat">
+        <div class="card-label"><span>NY Platinum</span><span>$/oz</span></div>
+        <div class="val-main">{d['plat']:,.2f}</div>
+        <div class="calc-area">
+            <div class="row"><span class="row-lbl">理論価格</span><span class="row-val">{us_p_jpy:,.0f} 円</span></div>
+            <div class="row" style="margin-top:5px; align-items:center;">
+                <span class="row-lbl">OSE差額</span>
+                <div>{fmt_diff(p_diff)}</div>
+            </div>
+        </div>
+    </div>
+    """
+
+    # 予想セクションHTML
+    html_pred = f"""
+    <div class="sim-box">
+        <div class="sim-title">🚀 OSE再開時 予想価格 <span style="font-weight:normal; font-size:0.8rem; color:#aaa;">(理論値 + 最終記録スプレッド)</span></div>
+        <div class="sim-grid">
+            <div class="sim-item" style="border-color:#ffc107;">
+                <div style="font-size:0.7rem; color:#aaa;">金 (Gold)</div>
+                <div class="sim-val">{pred_g:,.0f} <span style="font-size:0.9rem">円</span></div>
+                <div style="text-align:right; font-size:0.7rem; color:#888;">Spread: {last_g_spread:+}</div>
+            </div>
+            <div class="sim-item" style="border-color:#b0bec5;">
+                <div style="font-size:0.7rem; color:#aaa;">白金 (Plat)</div>
+                <div class="sim-val">{pred_p:,.0f} <span style="font-size:0.9rem">円</span></div>
+                <div style="text-align:right; font-size:0.7rem; color:#888;">Spread: {last_p_spread:+}</div>
+            </div>
+        </div>
+    </div>
+    """
+
+    # 履歴テーブルHTML構築
+    rows_html = ""
+    if not df_hist.empty:
+        for _, row in df_hist.iterrows():
+            g_cls = "plus" if row['gDiff'] > 0 else "minus"
+            p_cls = "plus" if row['pDiff'] > 0 else "minus"
+            g_sign = "+" if row['gDiff'] > 0 else ""
+            p_sign = "+" if row['pDiff'] > 0 else ""
+            
+            rows_html += f"""
+            <tr class="hist-row">
+                <td>{row['date']}<br>{row['time']}</td>
+                <td>{row['rate']}</td>
+                <td>{row['oseG']:,}</td>
+                <td class="{g_cls}" style="font-weight:bold;">{g_sign}{row['gDiff']:,}</td>
+                <td>{row['oseP']:,}</td>
+                <td class="{p_cls}" style="font-weight:bold;">{p_sign}{row['pDiff']:,}</td>
+            </tr>
+            """
     else:
-        st.info("履歴はまだありません。「更新 & 履歴保存」ボタンを押すと記録されます。")
+        rows_html = "<tr><td colspan='6' style='padding:10px;'>履歴なし</td></tr>"
+
+    html_hist = f"""
+    <div style="margin-top:20px;">
+        <div style="font-weight:bold; color:#ccc; margin-bottom:5px;">📊 過去20日間の記録</div>
+        <table class="hist-table">
+            <thead>
+                <tr><th>日時</th><th>為替</th><th>OSE金</th><th>差額</th><th>OSE白金</th><th>差額</th></tr>
+            </thead>
+            <tbody>
+                {rows_html}
+            </tbody>
+        </table>
+    </div>
+    """
+
+    # --- 描画実行 ---
+    st.markdown(html_fx, unsafe_allow_html=True)
+    
+    c1, c2 = st.columns(2)
+    with c1: st.markdown(html_gold, unsafe_allow_html=True)
+    with c2: st.markdown(html_plat, unsafe_allow_html=True)
+    
+    st.markdown(html_pred, unsafe_allow_html=True)
+    st.markdown(html_hist, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
