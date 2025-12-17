@@ -3,7 +3,6 @@ import requests
 import pandas as pd
 import datetime
 import os
-import json
 
 # ==========================================
 # 設定 & 定数
@@ -64,140 +63,108 @@ def save_history(usdjpy, ose_g, g_diff, ose_p, p_diff):
     return df
 
 # ==========================================
-# 3. CSS (見やすさ改善・強制横並び版)
+# 3. CSS (Streamlit標準部品の強制整形)
 # ==========================================
 CUSTOM_CSS = """
 <style>
     /* 全体設定 */
     .stApp { background-color: #121212 !important; font-family: 'Helvetica Neue', Arial, sans-serif; }
     .block-container { 
-        padding-top: 1rem !important; 
-        padding-bottom: 2rem !important; 
-        padding-left: 0.5rem !important;
-        padding-right: 0.5rem !important;
+        padding-top: 0.5rem !important; 
+        padding-bottom: 1rem !important; 
+        padding-left: 0.2rem !important; 
+        padding-right: 0.2rem !important; 
         max-width: 100% !important; 
     }
     
     h2 { 
         color: #e0e0e0 !important; 
         border-bottom: 1px solid #333; 
-        padding-bottom: 8px; 
-        margin-bottom: 15px !important; 
-        font-size: 1.4rem !important; /* タイトル少し大きく */
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        padding-bottom: 5px; margin-bottom: 10px !important; 
+        font-size: 1rem !important; white-space: nowrap; 
     }
 
-    /* --- 【重要】入力欄 & ボタンのスタイル (HTML要素を直接指定) --- */
-    /* 入力フォームの親コンテナ (CSSでdisplay:flexにする) */
-    div[data-testid="stForm"] > div > div {
-        display: flex !important;
-        flex-wrap: nowrap !important; /* 折り返し禁止 */
-        gap: 8px !important; /* 隙間を少し広げる */
-        align-items: flex-end !important; /* 底辺揃え */
-        width: 100%;
+    /* --- 強制横並び設定 --- */
+    /* 4つのカラムを含むコンテナ */
+    div[data-testid="stHorizontalBlock"] {
+        flex-wrap: nowrap !important; /* 絶対に折り返さない */
+        gap: 5px !important;
+        align-items: flex-end !important;
+        width: 100% !important;
     }
     
-    /* 各入力欄のコンテナ */
-    .ose-input-container {
-        flex: 1 1 0px !important; /* 均等幅に縮む */
+    /* 各カラム */
+    div[data-testid="column"] {
+        flex: 1 1 0px !important; /* 均等幅かつ最小0 */
         min-width: 0 !important;
         width: auto !important;
     }
 
-    /* ラベル */
-    .ose-label {
-        color: #aaa !important; 
-        font-size: 0.8rem !important; /* 文字サイズアップ */
-        white-space: nowrap;          
-        overflow: hidden;             
-        text-overflow: ellipsis;
-        margin-bottom: 4px !important;
-        display: block;
-        font-weight: bold;
-    }
-
-    /* 入力ボックス本体 */
-    .ose-input { 
-        background-color: #000 !important; 
-        color: #fff !important; 
-        border: 1px solid #555 !important; 
-        border-radius: 4px !important; 
-        text-align: right !important; 
-        font-weight: bold; 
-        width: 100% !important;       
+    /* --- 入力欄 (st.number_input) --- */
+    div[data-testid="stNumberInput"] {
         min-width: 0 !important;
-        font-size: 1.1rem !important; /* 文字サイズアップ */
-        padding: 0.4rem 0.5rem !important; /* 余白アップ */
-        height: auto !important;
-        box-sizing: border-box;
     }
-    .ose-input:focus { border-color: #ffc107 !important; outline: none !important; box-shadow: none !important; }
+    div[data-testid="stNumberInput"] label {
+        color: #aaa !important; font-size: 0.6rem !important; 
+        white-space: nowrap; margin-bottom: 0px !important;
+        line-height: 1 !important;
+    }
+    div[data-testid="stNumberInput"] input { 
+        background-color: #000 !important; color: #fff !important; 
+        border: 1px solid #555 !important; border-radius: 4px !important; 
+        text-align: right; font-weight: bold; 
+        font-size: 0.9rem !important; padding: 0.2rem !important;
+        min-width: 0 !important; width: 100% !important;
+    }
+    /* 増減ボタンを消す */
+    div[data-testid="stNumberInput"] button { display: none !important; }
+    div[data-testid="stNumberInput"] div[data-baseweb="input"] { padding: 0 !important; }
 
-    /* ボタン */
-    .stButton {
-        flex: 1 1 0px !important;
-        min-width: 0 !important;
-        width: auto !important;
-        margin-top: 0 !important;
-        padding: 0 !important;
+    /* --- ボタン (st.button) --- */
+    div.stButton {
+        min-width: 0 !important; width: 100% !important;
+        padding-bottom: 2px !important; /* ベースライン調整 */
     }
     div.stButton > button { 
-        width: 100% !important; 
-        min-width: 0 !important;
-        border-radius: 4px !important; 
-        font-weight: bold !important; 
-        border: none !important; 
-        padding: 0.6rem 0.2rem !important; /* ボタンの高さ確保 */
-        margin-top: 0px !important; 
-        font-size: 0.85rem !important; /* 文字サイズアップ */
-        white-space: nowrap; 
-        overflow: hidden;
-        text-overflow: clip; 
-        line-height: 1.2 !important;
-        height: auto !important;
+        width: 100% !important; min-width: 0 !important;
+        border-radius: 4px !important; font-weight: bold !important; border: none !important; 
+        padding: 0.35rem 0 !important; margin-top: 0px !important; 
+        font-size: 0.7rem !important; white-space: nowrap; overflow: hidden; line-height: 1.2 !important;
     }
     /* 青ボタン */
-    div[data-testid="stHorizontalBlock"] > div:nth-child(3) > div:nth-child(1) div.stButton > button { background-color: #0277bd !important; color: white !important; }
+    div[data-testid="column"]:nth-of-type(3) div.stButton > button { background-color: #0277bd !important; color: white !important; }
     /* オレンジボタン */
-    div[data-testid="stHorizontalBlock"] > div:nth-child(3) > div:nth-child(2) div.stButton > button { background-color: #e65100 !important; color: white !important; }
-
+    div[data-testid="column"]:nth-of-type(4) div.stButton > button { background-color: #e65100 !important; color: white !important; }
 
     /* --- HTML表示部分 --- */
-    .flex-row {
-        display: flex; flex-direction: row; flex-wrap: nowrap; gap: 8px; width: 100%; margin-bottom: 8px;
-    }
+    .flex-row { display: flex; flex-direction: row; flex-wrap: nowrap; gap: 5px; width: 100%; margin-bottom: 5px; }
     .flex-item { flex: 1; min-width: 0; }
 
-    /* カード */
-    .custom-card { background-color: #1e1e1e; border: 1px solid #333; border-radius: 6px; padding: 12px; box-sizing: border-box; }
-    .card-fx { border-left: 4px solid #009688; }
-    .card-gold { border-left: 4px solid #ffc107; }
-    .card-plat { border-left: 4px solid #b0bec5; }
+    .custom-card { background-color: #1e1e1e; border: 1px solid #333; border-radius: 4px; padding: 8px; box-sizing: border-box; }
+    .card-fx { border-left: 3px solid #009688; }
+    .card-gold { border-left: 3px solid #ffc107; }
+    .card-plat { border-left: 3px solid #b0bec5; }
 
-    .card-label { font-size: 0.85rem; color: #aaa; display: flex; justify-content: space-between; margin-bottom: 4px; white-space: nowrap; overflow: hidden; }
-    .val-main { font-size: 1.6rem; font-weight: bold; font-family: monospace; text-align: right; color: #fff; line-height: 1.2; white-space: nowrap; }
-    .unit { font-size: 0.85rem; color: #666; margin-left: 4px; }
+    .card-label { font-size: 0.7rem; color: #aaa; display: flex; justify-content: space-between; margin-bottom: 2px; white-space: nowrap; overflow: hidden; }
+    .val-main { font-size: 1.3rem; font-weight: bold; font-family: monospace; text-align: right; color: #fff; line-height: 1.1; white-space: nowrap; }
+    .unit { font-size: 0.7rem; color: #666; margin-left: 2px; }
 
-    .calc-area { border-top: 1px dashed #444; margin-top: 8px; padding-top: 8px; }
-    .row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
-    .row-lbl { font-size: 0.75rem; color: #888; white-space: nowrap; }
-    .row-val { font-size: 1rem; font-weight: bold; color: #fff; font-family: monospace; white-space: nowrap; }
-    .diff-val { font-size: 1.1rem; font-weight: bold; font-family: monospace; white-space: nowrap; }
+    .calc-area { border-top: 1px dashed #444; margin-top: 4px; padding-top: 4px; }
+    .row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0px; }
+    .row-lbl { font-size: 0.65rem; color: #888; white-space: nowrap; }
+    .row-val { font-size: 0.85rem; font-weight: bold; color: #fff; font-family: monospace; white-space: nowrap; }
+    .diff-val { font-size: 0.95rem; font-weight: bold; font-family: monospace; white-space: nowrap; }
     .plus { color: #ff5252; }
     .minus { color: #69f0ae; }
 
-    /* 予想ボックス */
-    .sim-box { background: #261a1a; border: 1px solid #5d4037; padding: 10px; border-radius: 6px; margin-bottom: 15px; }
-    .sim-title { font-size: 0.9rem; font-weight: bold; color: #ffab91; margin-bottom: 8px; white-space: nowrap; }
-    .sim-val { font-size: 1.4rem; font-weight: bold; color: #fff; text-align: right; font-family: monospace; white-space: nowrap; }
+    .sim-box { background: #261a1a; border: 1px solid #5d4037; padding: 6px; border-radius: 4px; margin-bottom: 8px; }
+    .sim-title { font-size: 0.75rem; font-weight: bold; color: #ffab91; margin-bottom: 4px; white-space: nowrap; }
+    .sim-val { font-size: 1.1rem; font-weight: bold; color: #fff; text-align: right; font-family: monospace; white-space: nowrap; }
 
-    /* 履歴テーブル */
-    .hist-container { margin-top: 15px; overflow-x: auto; }
-    .hist-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
-    .hist-table th { background: #2d2d2d; color: #ccc; padding: 6px; border: 1px solid #444; text-align: center; white-space: nowrap; }
-    .hist-table td { border: 1px solid #444; padding: 6px; text-align: center; color: #ddd; font-family: monospace; white-space: nowrap; }
+    .hist-container { margin-top: 10px; overflow-x: auto; }
+    .hist-table { width: 100%; border-collapse: collapse; font-size: 0.65rem; }
+    .hist-table th { background: #2d2d2d; color: #ccc; padding: 2px; border: 1px solid #444; text-align: center; white-space: nowrap; }
+    .hist-table td { border: 1px solid #444; padding: 2px; text-align: center; color: #ddd; font-family: monospace; white-space: nowrap; }
     .hist-row:nth-child(even) { background: #1a1a1a; }
 </style>
 """
@@ -206,93 +173,57 @@ CUSTOM_CSS = """
 # 4. メイン処理
 # ==========================================
 def main():
-    st.set_page_config(page_title="US/OSE Monitor", layout="wide", initial_sidebar_state="collapsed")
+    st.set_page_config(page_title="US/OSE", layout="wide", initial_sidebar_state="collapsed")
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-    # セッション状態
     if 'ose_g' not in st.session_state: st.session_state['ose_g'] = 13500.0
     if 'ose_p' not in st.session_state: st.session_state['ose_p'] = 4600.0
 
-    st.markdown("<h2>🇺🇸 US/OSE Monitor & Predictor</h2>", unsafe_allow_html=True)
+    st.markdown("<h2>🇺🇸 US/OSE Monitor</h2>", unsafe_allow_html=True)
 
-    # --- 1. OSE入力欄とボタン (HTMLで生成し、Streamlitの値を反映) ---
-    current_ose_g = st.session_state['ose_g']
-    current_ose_p = st.session_state['ose_p']
+    # --- 1. 入力＆ボタンエリア (4カラム) ---
+    # Pythonの標準機能だけで構築（JSを使わないので確実に動く）
+    # 比率は 入力:入力:ボタン:ボタン = 1.5 : 1.5 : 0.8 : 0.8 くらい
+    c1, c2, c3, c4 = st.columns([1.5, 1.5, 0.8, 0.8])
+    
+    with c1:
+        # label_visibility="visible" だが CSSでサイズ調整
+        ose_gold = st.number_input("OSE 金", value=st.session_state['ose_g'], step=10.0, format="%.0f", key="in_g")
+    
+    with c2:
+        ose_plat = st.number_input("OSE 白金", value=st.session_state['ose_p'], step=10.0, format="%.0f", key="in_p")
+    
+    with c3:
+        update_clicked = st.button("更新", use_container_width=True)
+    
+    with c4:
+        save_clicked = st.button("保存", use_container_width=True)
 
-    input_html = f"""
-    <div style="display:flex; flex-wrap:nowrap; gap:8px; align-items:flex-end; width:100%; margin-bottom:15px;">
-        <div class="ose-input-container">
-            <label for="ose-gold-input" class="ose-label">OSE 金</label>
-            <input type="number" id="ose-gold-input" class="ose-input" value="{current_ose_g}" onchange="this.value = Math.round(this.value);" />
-        </div>
-        <div class="ose-input-container">
-            <label for="ose-plat-input" class="ose-label">OSE 白金</label>
-            <input type="number" id="ose-plat-input" class="ose-input" value="{current_ose_p}" onchange="this.value = Math.round(this.value);" />
-        </div>
-        <div class="ose-input-container">
-            <button id="update-only-btn" class="stButton" style="background-color:#0277bd !important; color:white !important; cursor:pointer;">更新</button>
-        </div>
-        <div class="ose-input-container">
-            <button id="update-save-btn" class="stButton" style="background-color:#e65100 !important; color:white !important; cursor:pointer;">保存</button>
-        </div>
-    </div>
-    <script>
-        const updateBtn = document.getElementById('update-only-btn');
-        const saveBtn = document.getElementById('update-save-btn');
-        const goldInput = document.getElementById('ose-gold-input');
-        const platInput = document.getElementById('ose-plat-input');
-
-        if (updateBtn) updateBtn.onclick = function() {{
-            Streamlit.setComponentValue("update_action", {{gold: parseFloat(goldInput.value), plat: parseFloat(platInput.value), save: false}});
-        }};
-        if (saveBtn) saveBtn.onclick = function() {{
-            Streamlit.setComponentValue("update_action", {{gold: parseFloat(goldInput.value), plat: parseFloat(platInput.value), save: true}});
-        }};
-    </script>
-    """
-    st.components.v1.html(input_html, height=100)
-
-    # コールバック処理
-    update_action = st.experimental_get_query_params().get("update_action")
-    if update_action:
-        action_data = json.loads(update_action[0])
-        ose_gold = action_data["gold"]
-        ose_plat = action_data["plat"]
-        save_clicked = action_data["save"]
-        
+    # --- 処理ロジック ---
+    if update_clicked or save_clicked:
+        # 入力値をStateに保存
         st.session_state['ose_g'] = ose_gold
         st.session_state['ose_p'] = ose_plat
-
-        if save_clicked:
-            d = get_market_data()
-            us_g_jpy = (d["gold"] / OZ) * d["usdjpy"] if d["gold"] > 0 and d["usdjpy"] > 0 else 0
-            g_diff = ose_gold - us_g_jpy if us_g_jpy > 0 else 0
-            us_p_jpy = (d["plat"] / OZ) * d["usdjpy"] if d["plat"] > 0 and d["usdjpy"] > 0 else 0
-            p_diff = ose_plat - us_p_jpy if us_p_jpy > 0 else 0
-
-            if us_g_jpy > 0:
-                save_history(d["usdjpy"], ose_gold, g_diff, ose_plat, p_diff)
-                st.toast("保存!", icon="💾")
-        st.experimental_set_query_params()
-        st.rerun()
-
-
-    # --- データ取得 & 計算 ---
+    
+    # データ取得
     d = get_market_data()
-    ose_gold = st.session_state['ose_g']
-    ose_plat = st.session_state['ose_p']
-
     us_g_jpy = 0; g_diff = 0
     us_p_jpy = 0; p_diff = 0
 
     if d["usdjpy"] > 0:
         if d["gold"] > 0:
             us_g_jpy = (d["gold"] / OZ) * d["usdjpy"]
-            g_diff = ose_gold - us_g_jpy
+            g_diff = st.session_state['ose_g'] - us_g_jpy
         if d["plat"] > 0:
             us_p_jpy = (d["plat"] / OZ) * d["usdjpy"]
-            p_diff = ose_plat - us_p_jpy
-            
+            p_diff = st.session_state['ose_p'] - us_p_jpy
+
+    # 保存処理
+    if save_clicked:
+        if us_g_jpy > 0:
+            save_history(d["usdjpy"], st.session_state['ose_g'], g_diff, st.session_state['ose_p'], p_diff)
+            st.toast("保存完了", icon="💾")
+
     # 履歴 & 予想
     df_hist = load_history()
     last_g = df_hist.iloc[0]["gDiff"] if not df_hist.empty else 0
@@ -301,22 +232,20 @@ def main():
     pred_p = us_p_jpy + last_p if us_p_jpy > 0 else 0
 
     # ==========================================
-    # HTMLコンポーネント (Flexbox)
+    # HTMLコンポーネント
     # ==========================================
     def fmt(val):
         cls = "plus" if val > 0 else "minus"
         sgn = "+" if val > 0 else ""
         return f'<span class="diff-val {cls}">{sgn}{val:,.0f}</span>'
 
-    # 為替
     html_fx = f"""
-    <div class="custom-card card-fx" style="display:flex; justify-content:space-between; align-items:center; padding:10px 15px; margin-bottom:10px; margin-top:0px;">
-        <span style="font-weight:bold; color:#aaa; font-size:1rem;">USD/JPY</span>
-        <div><span class="val-main" style="font-size:1.6rem;">{d['usdjpy']:.2f}</span><span class="unit">円</span></div>
+    <div class="custom-card card-fx" style="display:flex; justify-content:space-between; align-items:center; padding:6px 10px; margin-bottom:5px; margin-top:10px;">
+        <span style="font-weight:bold; color:#aaa; font-size:0.8rem;">USD/JPY</span>
+        <div><span class="val-main" style="font-size:1.2rem;">{d['usdjpy']:.2f}</span><span class="unit">円</span></div>
     </div>
     """
 
-    # 金・白金 (横並び)
     html_main = f"""
     <div class="flex-row">
         <div class="flex-item custom-card card-gold">
@@ -324,7 +253,7 @@ def main():
             <div class="val-main">{d['gold']:,.2f}</div>
             <div class="calc-area">
                 <div class="row"><span class="row-lbl">理論</span><span class="row-val">{us_g_jpy:,.0f}</span></div>
-                <div class="row" style="margin-top:4px;">
+                <div class="row" style="margin-top:2px;">
                     <span class="row-lbl">差額</span>
                     <div>{fmt(g_diff)}</div>
                 </div>
@@ -335,7 +264,7 @@ def main():
             <div class="val-main">{d['plat']:,.2f}</div>
             <div class="calc-area">
                 <div class="row"><span class="row-lbl">理論</span><span class="row-val">{us_p_jpy:,.0f}</span></div>
-                <div class="row" style="margin-top:4px;">
+                <div class="row" style="margin-top:2px;">
                     <span class="row-lbl">差額</span>
                     <div>{fmt(p_diff)}</div>
                 </div>
@@ -344,24 +273,22 @@ def main():
     </div>
     """
 
-    # 予想 (横並び)
     html_pred = f"""
     <div class="sim-box">
         <div class="sim-title">🚀 予想価格</div>
         <div class="flex-row" style="margin-bottom:0;">
-            <div class="flex-item" style="background:rgba(0,0,0,0.3); padding:8px; border-radius:4px; border-left:3px solid #ffc107;">
-                <div style="font-size:0.75rem; color:#aaa; margin-bottom:2px;">金</div>
+            <div class="flex-item" style="background:rgba(0,0,0,0.3); padding:5px; border-radius:4px; border-left:3px solid #ffc107;">
+                <div style="font-size:0.6rem; color:#aaa;">金</div>
                 <div class="sim-val">{pred_g:,.0f}</div>
             </div>
-            <div class="flex-item" style="background:rgba(0,0,0,0.3); padding:8px; border-radius:4px; border-left:3px solid #b0bec5;">
-                <div style="font-size:0.75rem; color:#aaa; margin-bottom:2px;">白金</div>
+            <div class="flex-item" style="background:rgba(0,0,0,0.3); padding:5px; border-radius:4px; border-left:3px solid #b0bec5;">
+                <div style="font-size:0.6rem; color:#aaa;">白金</div>
                 <div class="sim-val">{pred_p:,.0f}</div>
             </div>
         </div>
     </div>
     """
 
-    # 履歴
     rows = ""
     if not df_hist.empty:
         for _, r in df_hist.iterrows():
@@ -383,7 +310,7 @@ def main():
 
     html_hist = f"""
     <div class="hist-container">
-        <div style="font-weight:bold; color:#ccc; margin-bottom:8px; font-size:0.9rem;">📊 履歴(20件)</div>
+        <div style="font-weight:bold; color:#ccc; margin-bottom:5px; font-size:0.7rem;">📊 履歴(20件)</div>
         <table class="hist-table">
             <thead><tr><th>時間</th><th>為替</th><th>金</th><th>差額</th><th>白金</th><th>差額</th></tr></thead>
             <tbody>{rows}</tbody>
