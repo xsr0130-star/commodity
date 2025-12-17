@@ -69,7 +69,7 @@ def save_history(usdjpy, ose_g, g_diff, ose_p, p_diff):
     return df
 
 # ==========================================
-# 3. カスタムCSS
+# 3. カスタムCSS (レスポンシブ対応)
 # ==========================================
 CUSTOM_CSS = """
 <style>
@@ -78,11 +78,10 @@ CUSTOM_CSS = """
         background-color: #121212 !important;
         font-family: 'Helvetica Neue', Arial, sans-serif;
     }
-    
     .block-container {
-        padding-top: 2rem !important;
+        padding-top: 1rem !important;
         padding-bottom: 2rem !important;
-        max-width: 800px !important;
+        max-width: 900px !important;
     }
     
     h2 {
@@ -90,56 +89,55 @@ CUSTOM_CSS = """
         font-size: 1.3rem !important;
         border-bottom: 2px solid #333;
         padding-bottom: 10px;
-        margin-bottom: 20px !important;
+        margin-bottom: 15px !important;
     }
 
     /* --- 入力フォーム --- */
     div[data-testid="stNumberInput"] label {
-        color: #aaa !important;
-        font-size: 0.8rem !important;
+        color: #aaa !important; font-size: 0.8rem !important;
     }
     div[data-testid="stNumberInput"] input {
-        background-color: #000 !important;
-        color: #fff !important;
-        border: 1px solid #555 !important;
-        border-radius: 4px !important;
-        font-family: monospace;
-        font-weight: bold;
-        text-align: right;
+        background-color: #000 !important; color: #fff !important;
+        border: 1px solid #555 !important; border-radius: 4px !important;
+        font-family: monospace; font-weight: bold; text-align: right;
     }
     div[data-testid="stNumberInput"] input:focus {
         border-color: #ffc107 !important;
-        box-shadow: none !important;
     }
 
     /* --- ボタン --- */
-    /* ボタンの共通スタイル */
     div.stButton > button {
-        width: 100%;
-        border-radius: 4px !important;
-        font-weight: bold !important;
-        border: none !important;
-        padding: 0.6rem !important;
-        line-height: 1.2 !important;
-        margin-top: 5px;
+        width: 100%; border-radius: 4px !important; font-weight: bold !important;
+        border: none !important; padding: 0.6rem !important; margin-top: 5px;
     }
-    
-    /* 更新のみボタン (カラム1) */
+    /* カラム1: 更新のみ(青) */
     div[data-testid="column"]:nth-of-type(1) div.stButton > button {
-        background-color: #0277bd !important;
-        color: white !important;
+        background-color: #0277bd !important; color: white !important;
     }
-    div[data-testid="column"]:nth-of-type(1) div.stButton > button:hover {
-        background-color: #01579b !important;
+    /* カラム2: 保存(オレンジ) */
+    div[data-testid="column"]:nth-of-type(2) div.stButton > button {
+        background-color: #e65100 !important; color: white !important;
+    }
+
+    /* --- レスポンシブ・グリッドシステム (重要) --- */
+    /* 親コンテナ: 幅に応じて折り返す */
+    .flex-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        width: 100%;
     }
     
-    /* 更新＆保存ボタン (カラム2) */
-    div[data-testid="column"]:nth-of-type(2) div.stButton > button {
-        background-color: #e65100 !important;
-        color: white !important;
+    /* 100%幅アイテム (為替, 予想, 履歴) */
+    .flex-full {
+        flex: 1 1 100%;
+        min-width: 300px;
     }
-    div[data-testid="column"]:nth-of-type(2) div.stButton > button:hover {
-        background-color: #bf360c !important;
+    
+    /* 50%幅アイテム (金, 白金) */
+    .flex-half {
+        flex: 1 1 48%; /* 2列並び */
+        min-width: 300px; /* 300px以下になったら縦並び(100%)になる */
     }
 
     /* --- カードデザイン --- */
@@ -148,7 +146,8 @@ CUSTOM_CSS = """
         border: 1px solid #333;
         border-radius: 8px;
         padding: 15px;
-        margin-bottom: 10px;
+        margin-bottom: 5px;
+        box-sizing: border-box; /* 枠線を含めたサイズ計算 */
     }
     .card-fx { border-left: 4px solid #009688; }
     .card-gold { border-left: 4px solid #ffc107; }
@@ -167,7 +166,7 @@ CUSTOM_CSS = """
     .minus { color: #69f0ae; }
 
     /* 予想ボックス */
-    .sim-box { background: #261a1a; border: 1px solid #5d4037; padding: 10px; border-radius: 6px; margin-bottom: 20px; }
+    .sim-box { background: #261a1a; border: 1px solid #5d4037; padding: 10px; border-radius: 6px; margin-bottom: 10px; }
     .sim-title { font-size: 0.9rem; font-weight: bold; color: #ffab91; margin-bottom: 5px; }
     .sim-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .sim-item { background: rgba(0,0,0,0.3); padding: 8px; border-radius: 4px; border-left: 3px solid #555; }
@@ -194,23 +193,24 @@ def main():
 
     st.markdown("<h2>🇺🇸 US/OSE Monitor & Predictor</h2>", unsafe_allow_html=True)
 
-    # --- 1. 入力エリア (横並び) ---
-    c_in1, c_in2 = st.columns(2)
-    with c_in1:
+    # --- 1. 入力 & ボタンエリア (Streamlitのカラムは標準でレスポンシブ) ---
+    col1, col2, col3 = st.columns([1.5, 1.5, 2])
+    
+    with col1:
         ose_gold = st.number_input("OSE 金 (円)", value=st.session_state['ose_g'], step=10.0, format="%.0f")
-    with c_in2:
+    with col2:
         ose_plat = st.number_input("OSE 白金 (円)", value=st.session_state['ose_p'], step=10.0, format="%.0f")
-
-    # --- 2. ボタンエリア (横並び) ---
-    st.write("") # 少し隙間
-    c_btn1, c_btn2 = st.columns(2)
-    with c_btn1:
-        if st.button("更新のみ", use_container_width=True):
-            st.session_state['ose_g'] = ose_gold
-            st.session_state['ose_p'] = ose_plat
-            st.rerun()
-    with c_btn2:
-        save_clicked = st.button("更新＆保存", type="primary", use_container_width=True)
+    with col3:
+        st.write("") 
+        st.write("")
+        c_b1, c_b2 = st.columns(2)
+        with c_b1:
+            if st.button("更新のみ", use_container_width=True):
+                st.session_state['ose_g'] = ose_gold
+                st.session_state['ose_p'] = ose_plat
+                st.rerun()
+        with c_b2:
+            save_clicked = st.button("更新＆保存", type="primary", use_container_width=True)
 
     # --- データ取得 & 計算 ---
     d = get_market_data()
@@ -242,21 +242,22 @@ def main():
     pred_p = us_p_jpy + last_p_spread if us_p_jpy > 0 else 0
 
     # ==========================================
-    # HTMLコンポーネント
+    # HTMLコンポーネント (レスポンシブFlexbox構成)
     # ==========================================
-    
     def fmt_diff(val):
         sign = "+" if val > 0 else ""
         cls = "plus" if val > 0 else "minus"
         return f'<span class="diff-val {cls}">{sign}{val:,.0f}</span> <span style="font-size:0.8rem">円</span>'
 
+    # 為替カード
     html_fx = f"""
-    <div class="custom-card card-fx" style="display:flex; justify-content:space-between; align-items:center; padding:10px 15px; margin-top:20px;">
+    <div class="custom-card card-fx" style="display:flex; justify-content:space-between; align-items:center; padding:10px 15px;">
         <span style="font-weight:bold; color:#aaa;">USD/JPY</span>
         <div><span class="val-main" style="font-size:1.5rem;">{d['usdjpy']:.2f}</span><span class="unit">円</span></div>
     </div>
     """
 
+    # 金カード
     html_gold = f"""
     <div class="custom-card card-gold">
         <div class="card-label"><span>NY Gold</span><span>$/oz</span></div>
@@ -271,6 +272,7 @@ def main():
     </div>
     """
 
+    # 白金カード
     html_plat = f"""
     <div class="custom-card card-plat">
         <div class="card-label"><span>NY Platinum</span><span>$/oz</span></div>
@@ -285,9 +287,10 @@ def main():
     </div>
     """
 
+    # 予想セクション
     html_pred = f"""
     <div class="sim-box">
-        <div class="sim-title">🚀 OSE再開時 予想価格 <span style="font-weight:normal; font-size:0.7rem; color:#888;">(理論値 + 最終記録スプレッド)</span></div>
+        <div class="sim-title">🚀 OSE再開時 予想価格</div>
         <div class="sim-grid">
             <div class="sim-item" style="border-color:#ffc107;">
                 <div style="font-size:0.7rem; color:#aaa;">金 (Gold)</div>
@@ -303,6 +306,7 @@ def main():
     </div>
     """
 
+    # 履歴テーブル
     rows_html = ""
     if not df_hist.empty:
         for _, row in df_hist.iterrows():
@@ -310,7 +314,6 @@ def main():
             p_cls = "plus" if row['pDiff'] > 0 else "minus"
             g_sign = "+" if row['gDiff'] > 0 else ""
             p_sign = "+" if row['pDiff'] > 0 else ""
-            
             rows_html += f"""
             <tr class="hist-row">
                 <td>{row['date']}<br>{row['time']}</td>
@@ -328,21 +331,36 @@ def main():
     <div style="margin-top:10px;">
         <div style="font-weight:bold; color:#ccc; margin-bottom:5px; font-size:0.9rem;">📊 過去20日間の記録</div>
         <table class="hist-table">
-            <thead>
-                <tr><th>日時</th><th>為替</th><th>OSE金</th><th>差額</th><th>OSE白金</th><th>差額</th></tr>
-            </thead>
+            <thead><tr><th>日時</th><th>為替</th><th>OSE金</th><th>差額</th><th>OSE白金</th><th>差額</th></tr></thead>
             <tbody>{rows_html}</tbody>
         </table>
     </div>
     """
 
-    # --- 描画 ---
-    st.markdown(html_fx, unsafe_allow_html=True)
-    c1, c2 = st.columns(2)
-    with c1: st.markdown(html_gold, unsafe_allow_html=True)
-    with c2: st.markdown(html_plat, unsafe_allow_html=True)
-    st.markdown(html_pred, unsafe_allow_html=True)
-    st.markdown(html_hist, unsafe_allow_html=True)
+    # --- 画面レイアウト (Flexboxで自動配置) ---
+    # 以前は st.columns で分けていましたが、
+    # 幅が狭いときは自動で縦並びになるよう、一つのHTMLブロックにまとめます。
+    
+    html_combined = f"""
+    <div class="flex-container">
+        <!-- 為替 (常に100%) -->
+        <div class="flex-full">{html_fx}</div>
+        
+        <!-- 金 (幅があれば50%、なければ100%) -->
+        <div class="flex-half">{html_gold}</div>
+        
+        <!-- 白金 (幅があれば50%、なければ100%) -->
+        <div class="flex-half">{html_plat}</div>
+        
+        <!-- 予想 (常に100%) -->
+        <div class="flex-full">{html_pred}</div>
+        
+        <!-- 履歴 (常に100%) -->
+        <div class="flex-full">{html_hist}</div>
+    </div>
+    """
+    
+    st.markdown(html_combined, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
